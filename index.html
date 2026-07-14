@@ -109,7 +109,17 @@
         <span style="color:#444;">-</span>
         <select id="lives-max"><option value="3">3</option><option value="5">5</option><option value="7" selected>7</option><option value="10">10</option><option value="15">15</option><option value="20">20</option></select>
     </div>
-    <p style="font-size:11px; color:#333; letter-spacing:2px;">Configura las vidas antes de que el rival entre</p>
+    <div class="lives-config">
+        <label>VELOCIDAD:</label>
+        <select id="speed-select">
+            <option value="120">Lenta</option>
+            <option value="95">Normal</option>
+            <option value="72" selected>Rapida</option>
+            <option value="55">Muy Rapida</option>
+            <option value="40">Extrema</option>
+        </select>
+    </div>
+    <p style="font-size:11px; color:#333; letter-spacing:2px;">Configura antes de que el rival entre</p>
     <button class="back-btn" onclick="goBack()">&lt; VOLVER</button>
 </div>
 
@@ -276,7 +286,7 @@ function startCountdown(cb){var cd=document.getElementById('countdown'),count=3;
 // GAME ENGINE
 // ==============================
 var canvas=document.getElementById('game-canvas'),ctx=canvas.getContext('2d');
-var CELL=4,SPEED=85,gridW,gridH,myCycle,oppCycle,myDir,oppDir,gameTick,gameStarted=false,particles=[],trailGlows=[];
+var CELL=4,SPEED=72,gridW,gridH,myCycle,oppCycle,myDir,oppDir,gameTick,gameStarted=false,particles=[],trailGlows=[];
 var isMobile=/Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent)||('ontouchstart' in window);
 
 function resizeCanvas(){canvas.width=window.innerWidth;canvas.height=window.innerHeight;gridW=Math.floor(canvas.width/CELL);gridH=Math.floor(canvas.height/CELL);}
@@ -590,13 +600,15 @@ function handleData(d){
                 // Guest receives config from host
                 lives.min=parseInt(document.getElementById('lives-min').value);
                 lives.max=parseInt(document.getElementById('lives-max').value);
+                SPEED=parseInt(document.getElementById('speed-select').value);
                 if(lives.max<lives.min)lives.max=lives.min;
-                send({type:'config',min:lives.min,max:lives.max});
+                send({type:'config',min:lives.min,max:lives.max,speed:SPEED});
                 setTimeout(function(){send({type:'start'});startCountdown(function(){resetScores();updateHudLives();startGame();});},1500);
             }
             break;
         case 'config':
             lives.min=d.min;lives.max=d.max;
+            if(d.speed)SPEED=d.speed;
             updateLobbyLives();
             break;
         case 'start':
