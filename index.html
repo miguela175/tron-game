@@ -96,7 +96,7 @@
     <p class="room-status"><span class="player-status-dot status-waiting"></span><span id="create-status-text">Esperando jugadores...</span></p>
     <button class="copy-btn" id="copy-btn" onclick="copyRoomCode()">Copiar Codigo</button>
     <div class="divider"></div>
-    <div class="cfg-row"><label>MAX JUGADORES:</label><select id="cfg-max-players"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="6">6</option><option value="8">8</option></select></div>
+    <div class="cfg-row"><label>MAX JUGADORES:</label><select id="cfg-max-players"><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></div>
     <div class="cfg-row"><label>VIDAS:</label><select id="cfg-lives"><option value="1">1</option><option value="3" selected>3</option><option value="5">5</option><option value="7">7</option><option value="10">10</option></select></div>
     <div class="cfg-row"><label>VELOCIDAD:</label><select id="cfg-speed"><option value="55">Normal</option><option value="40" selected>Rapida</option><option value="28">Muy Rapida</option><option value="18">Extrema</option></select></div>
     <p class="cfg-note">Configura antes de que entren los jugadores</p>
@@ -150,7 +150,7 @@ var PLAYER_LABELS=['P1','P2','P3','P4','P5','P6','P7','P8'];
 // ============================
 var peer=null,conn=null,isHost=false,myPlayerIdx=-1,myColor=null,gameRunning=false,musicPlaying=false;
 var players=[]; // [{id,name,color,x,y,trail,dir,alive,peerId}]
-var maxPlayers=4,livesPerPlayer=3,SPEED=40;
+var maxPlayers=8,livesPerPlayer=3,SPEED=40;
 var AudioCtx=window.AudioContext||window.webkitAudioContext,audioCtx=null;
 
 function ensureAudioCtx(){if(!audioCtx)audioCtx=new AudioCtx();if(audioCtx.state==='suspended')audioCtx.resume();}
@@ -240,11 +240,15 @@ function initPeer(createRoom){
 function handleNewClient(c){
     c.on('open',function(){
         var playerIdx=players.length;
+        var cfgMax=parseInt(document.getElementById('cfg-max-players').value);
+        maxPlayers=cfgMax;
         if(playerIdx>=maxPlayers){
-            c.send({type:'rejected',reason:'Sala llena'});
+            c.send({type:'rejected',reason:'Sala llena (max '+maxPlayers+')'});
             c.close();
             return;
         }
+        livesPerPlayer=parseInt(document.getElementById('cfg-lives').value);
+        SPEED=parseInt(document.getElementById('cfg-speed').value);
         var color=PLAYER_COLORS[playerIdx%PLAYER_COLORS.length];
         var p={idx:playerIdx,color:color,x:0,y:0,trail:[],dir:{x:0,y:0},alive:true,peerId:c.peer,lives:livesPerPlayer,name:PLAYER_LABELS[playerIdx]};
         players.push(p);
@@ -286,8 +290,9 @@ function handleClientDisconnect(peerId){
 function updateCreateStatus(){
     var el=document.getElementById('create-status-text');
     if(!el)return;
-    var alive=players.filter(function(p){return p.alive||p.lives>0;}).length;
-    el.textContent=alive+'/'+maxPlayers+' jugadores conectados';
+    var alive=players.length;
+    var mp=parseInt(document.getElementById('cfg-max-players').value);
+    el.textContent=alive+'/'+mp+' jugadores (minimo 2 para iniciar)';
 }
 
 // Client setup
@@ -842,7 +847,6 @@ document.getElementById('join-input').addEventListener('input',function(e){e.tar
 // HOST: AUTO-START ON FIRST JOIN + CONFIG READ
 // ============================
 var hostStarted=false;
-var origHandleNewClient=handleNewClient;
 // Override to add config + start logic
 (function(){
     var _hnc=handleNewClient;
