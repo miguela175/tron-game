@@ -121,17 +121,165 @@
 <div id="overlay-msg"><h2 id="overlay-title"></h2><p id="overlay-sub"></p></div>
 <div id="countdown"></div>
 <button id="music-toggle" onclick="toggleMusic()">MUSICA: OFF</button>
-<audio id="bg-music" loop preload="auto"><source src="https://cdn.pixabay.com/audio/2024/11/28/audio_3e27c30a86.mp3" type="audio/mpeg"></audio>
+
 <script>
 var peer=null,conn=null,isHost=false,myColor=null,gameRunning=false,scores={p1:0,p2:0},musicPlaying=false;
 var AudioCtx=window.AudioContext||window.webkitAudioContext,audioCtx=null;
-function ensureAudioCtx(){if(!audioCtx)audioCtx=new AudioCtx();}
+function ensureAudioCtx(){if(!audioCtx)audioCtx=new AudioCtx();if(audioCtx.state==='suspended')audioCtx.resume();}
 function playTone(f,d,t,v){t=t||'square';v=v||0.08;try{ensureAudioCtx();var o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type=t;o.frequency.setValueAtTime(f,audioCtx.currentTime);g.gain.setValueAtTime(v,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+d);o.connect(g);g.connect(audioCtx.destination);o.start();o.stop(audioCtx.currentTime+d);}catch(e){}}
 function sfxTurn(){playTone(800,0.06,'square',0.05);}
 function sfxStart(){playTone(440,0.1,'sine',0.1);setTimeout(function(){playTone(660,0.1,'sine',0.1);},100);setTimeout(function(){playTone(880,0.15,'sine',0.1);},200);}
 function sfxCrash(){playTone(200,0.4,'sawtooth',0.12);playTone(100,0.5,'square',0.08);}
 function sfxWin(){[523,659,784,1047].forEach(function(f,i){setTimeout(function(){playTone(f,0.15,'sine',0.1);},i*120);});}
-function toggleMusic(){var b=document.getElementById('music-toggle'),a=document.getElementById('bg-music');if(musicPlaying){if(a)a.pause();musicPlaying=false;b.textContent='MUSICA: OFF';b.classList.remove('playing');}else{if(a)a.play().catch(function(){});musicPlaying=true;b.textContent='MUSICA: ON';b.classList.add('playing');}}
+
+var synthIntervals=[],synthOscs=[],synthNodes=[];
+function stopSynth(){synthIntervals.forEach(clearInterval);synthIntervals=[];synthOscs.forEach(function(o){try{o.stop();}catch(e){}});synthOscs=[];synthNodes.forEach(function(n){try{n.disconnect();}catch(e){}});synthNodes=[];}
+function mkGain(ctx,v){var g=ctx.createGain();g.gain.value=v;return g;}
+function mkOsc(ctx,tp,fr){var o=ctx.createOscillator();o.type=tp;o.frequency.value=fr;return o;}
+
+function startSynthMusic(){
+    ensureAudioCtx();
+    var ac=audioCtx;
+    var bpm=128;
+    var beatMs=60000/bpm;
+    var halfBeat=beatMs/2;
+
+    // 1) BASS DRONE - heavy sawtooth with LFO wobble
+    var bass=mkOsc(ac,'sawtooth',55);
+    var bassFilt=ac.createBiquadFilter();bassFilt.type='lowpass';bassFilt.frequency.value=180;bassFilt.Q.value=8;
+    var bassLfo=mkOsc(ac,'sine',0.12);var bassLfoG=mkGain(ac,90);
+    bassLfo.connect(bassLfoG);bassLfoG.connect(bassFilt.frequency);
+    var bassG=mkGain(ac,0.14);
+    bass.connect(bassFilt);bassFilt.connect(bassG);bassG.connect(ac.destination);
+    bass.start();bassLfo.start();
+    synthOscs.push(bass,bassLfo);synthNodes.push(bassG,bassFilt,bassLfoG);
+
+    // 2) SUB BASS - pure sine underneath
+    var sub=mkOsc(ac,'sine',27.5);
+    var subG=mkGain(ac,0.1);
+    sub.connect(subG);subG.connect(ac.destination);
+    sub.start();
+    synthOscs.push(sub);synthNodes.push(subG);
+
+    // 3) PAD - detuned sines for warm atmosphere
+    var pad1=mkOsc(ac,'sine',110);var pad2=mkOsc(ac,'sine',110.5);var pad3=mkOsc(ac,'sine',165);var pad4=mkOsc(ac,'sine',165.8);
+    var padFilt=ac.createBiquadFilter();padFilt.type='lowpass';padFilt.frequency.value=500;padFilt.Q.value=2;
+    var padG=mkGain(ac,0.035);
+    pad1.connect(padFilt);pad2.connect(padFilt);pad3.connect(padFilt);pad4.connect(padFilt);padFilt.connect(padG);padG.connect(ac.destination);
+    pad1.start();pad2.start();pad3.start();pad4.start();
+    synthOscs.push(pad1,pad2,pad3,pad4);synthNodes.push(padG,padFilt);
+
+    // 4) ARP SEQUENCE - E minor pentatonic
+    var arpNotes=[82.41,98,110,123.47,146.83,164.81,146.83,123.47,110,98,82.41,73.42,82.41,98,110,123.47];
+    var arpIdx=0;
+    var arpOsc=mkOsc(ac,'square',arpNotes[0]);
+    var arpFilt=ac.createBiquadFilter();arpFilt.type='lowpass';arpFilt.frequency.value=1400;arpFilt.Q.value=5;
+    var arpG=mkGain(ac,0);
+    arpOsc.connect(arpFilt);arpFilt.connect(arpG);arpG.connect(ac.destination);
+    arpOsc.start();
+    synthOscs.push(arpOsc);synthNodes.push(arpG,arpFilt);
+    synthIntervals.push(setInterval(function(){
+        if(!musicPlaying)return;
+        arpOsc.frequency.setValueAtTime(arpNotes[arpIdx%arpNotes.length],ac.currentTime);
+        var t=ac.currentTime;
+        arpG.gain.cancelScheduledValues(t);
+        arpG.gain.setValueAtTime(0.18,t);
+        arpG.gain.exponentialRampToValueAtTime(0.001,t+halfBeat/1000*0.85);
+        arpIdx++;
+    },halfBeat));
+
+    // 5) LEAD - high sine melody
+    var leadNotes=[329.63,0,392,0,440,0,392,329.63,0,293.66,0,329.63,0,0,293.66,0];
+    var leadIdx=0;
+    var leadOsc=mkOsc(ac,'sine',329.63);
+    var leadG=mkGain(ac,0);
+    leadOsc.connect(leadG);leadG.connect(ac.destination);
+    leadOsc.start();
+    synthOscs.push(leadOsc);synthNodes.push(leadG);
+    synthIntervals.push(setInterval(function(){
+        if(!musicPlaying)return;
+        var note=leadNotes[leadIdx%leadNotes.length];
+        if(note>0){
+            leadOsc.frequency.setValueAtTime(note,ac.currentTime);
+            var t=ac.currentTime;
+            leadG.gain.cancelScheduledValues(t);
+            leadG.gain.setValueAtTime(0.08,t);
+            leadG.gain.exponentialRampToValueAtTime(0.001,t+halfBeat*2/1000*0.9);
+        }
+        leadIdx++;
+    },halfBeat*2));
+
+    // 6) KICK - punchy electronic kick
+    synthIntervals.push(setInterval(function(){
+        if(!musicPlaying)return;
+        var t=ac.currentTime;
+        var k=mkOsc(ac,'sine',160);var kg=mkGain(ac,0.35);
+        k.connect(kg);kg.connect(ac.destination);
+        k.frequency.setValueAtTime(160,t);k.frequency.exponentialRampToValueAtTime(28,t+0.12);
+        kg.gain.setValueAtTime(0.35,t);kg.gain.exponentialRampToValueAtTime(0.001,t+0.18);
+        k.start(t);k.stop(t+0.18);
+    },beatMs));
+
+    // 7) SNARE - on beats 2 and 4
+    var snareCount=0;
+    synthIntervals.push(setInterval(function(){
+        if(!musicPlaying)return;
+        snareCount++;
+        if(snareCount%4===2){
+            var t=ac.currentTime;
+            // Noise
+            var bufSz=Math.floor(ac.sampleRate*0.1);var buf=ac.createBuffer(1,bufSz,ac.sampleRate);var ch=buf.getChannelData(0);
+            for(var i=0;i<bufSz;i++)ch[i]=Math.random()*2-1;
+            var ns=ac.createBufferSource();ns.buffer=buf;
+            var hp=ac.createBiquadFilter();hp.type='bandpass';hp.frequency.value=3000;hp.Q.value=0.8;
+            var ng=mkGain(ac,0.18);
+            ns.connect(hp);hp.connect(ng);ng.connect(ac.destination);
+            ng.gain.setValueAtTime(0.18,t);ng.gain.exponentialRampToValueAtTime(0.001,t+0.12);
+            ns.start(t);ns.stop(t+0.12);
+            // Tone body
+            var nt=mkOsc(ac,'triangle',200);var ntg=mkGain(ac,0.12);
+            nt.connect(ntg);ntg.connect(ac.destination);
+            nt.frequency.setValueAtTime(200,t);nt.frequency.exponentialRampToValueAtTime(80,t+0.06);
+            ntg.gain.setValueAtTime(0.12,t);ntg.gain.exponentialRampToValueAtTime(0.001,t+0.08);
+            nt.start(t);nt.stop(t+0.08);
+        }
+    },halfBeat));
+
+    // 8) HI-HAT - 16th note pattern
+    synthIntervals.push(setInterval(function(){
+        if(!musicPlaying)return;
+        var t=ac.currentTime;
+        var bufSz=Math.floor(ac.sampleRate*0.03);var buf=ac.createBuffer(1,bufSz,ac.sampleRate);var ch=buf.getChannelData(0);
+        for(var i=0;i<bufSz;i++)ch[i]=Math.random()*2-1;
+        var ns=ac.createBufferSource();ns.buffer=buf;
+        var hp=ac.createBiquadFilter();hp.type='highpass';hp.frequency.value=8000;
+        var hg=mkGain(ac,0.05);
+        ns.connect(hp);hp.connect(hg);hg.connect(ac.destination);
+        hg.gain.setValueAtTime(0.05,t);hg.gain.exponentialRampToValueAtTime(0.001,t+0.03);
+        ns.start(t);ns.stop(t+0.03);
+    },halfBeat/2));
+
+    // 9) FX - sweeping filter noise for atmosphere
+    synthIntervals.push(setInterval(function(){
+        if(!musicPlaying)return;
+        var t=ac.currentTime;
+        var bufSz=Math.floor(ac.sampleRate*1.5);var buf=ac.createBuffer(1,bufSz,ac.sampleRate);var ch=buf.getChannelData(0);
+        for(var i=0;i<bufSz;i++)ch[i]=Math.random()*2-1;
+        var ns=ac.createBufferSource();ns.buffer=buf;
+        var bp=ac.createBiquadFilter();bp.type='bandpass';bp.Q.value=20;
+        bp.frequency.setValueAtTime(200,t);bp.frequency.linearRampToValueAtTime(8000,t+1.5);
+        var fg=mkGain(ac,0.015);
+        ns.connect(bp);bp.connect(fg);fg.connect(ac.destination);
+        fg.gain.setValueAtTime(0,t);fg.gain.linearRampToValueAtTime(0.015,t+0.5);fg.gain.linearRampToValueAtTime(0,t+1.5);
+        ns.start(t);ns.stop(t+1.5);
+    },beatMs*8));
+}
+
+function toggleMusic(){
+    var b=document.getElementById('music-toggle');
+    if(musicPlaying){stopSynth();musicPlaying=false;b.textContent='MUSICA: OFF';b.classList.remove('playing');}
+    else{musicPlaying=true;b.textContent='MUSICA: ON';b.classList.add('playing');startSynthMusic();}
+}
 function showScreen(id){document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});if(id)document.getElementById(id).classList.add('active');}
 function showCreateRoom(){isHost=true;myColor='cyan';initPeer(true);showScreen('create-screen');}
 function showJoinRoom(){isHost=false;myColor='orange';showScreen('join-screen');document.getElementById('join-input').value='';document.getElementById('join-input').focus();}
