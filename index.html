@@ -100,6 +100,7 @@
     <div class="cfg-row"><label>VIDAS:</label><select id="cfg-lives"><option value="1">1</option><option value="3" selected>3</option><option value="5">5</option><option value="7">7</option><option value="10">10</option></select></div>
     <div class="cfg-row"><label>VELOCIDAD:</label><select id="cfg-speed"><option value="55">Normal</option><option value="40" selected>Rapida</option><option value="28">Muy Rapida</option><option value="18">Extrema</option></select></div>
     <p class="cfg-note">Configura antes de que entren los jugadores</p>
+    <button class="menu-btn" id="start-game-btn" style="display:none;margin-top:16px;border-color:#0f0;color:#0f0;" onclick="hostManualStart()">INICIAR PARTIDA</button>
     <button class="back-btn" onclick="goBack()">&lt; VOLVER</button>
 </div>
 
@@ -290,9 +291,15 @@ function handleClientDisconnect(peerId){
 function updateCreateStatus(){
     var el=document.getElementById('create-status-text');
     if(!el)return;
-    var alive=players.length;
-    var mp=parseInt(document.getElementById('cfg-max-players').value);
-    el.textContent=alive+'/'+mp+' jugadores (minimo 2 para iniciar)';
+    var n=players.length;
+    var startBtn=document.getElementById('start-game-btn');
+    if(n<2){
+        el.textContent=n+'/2+ jugadores conectados';
+        startBtn.style.display='none';
+    }else{
+        el.textContent=n+' jugadores listos!';
+        startBtn.style.display='block';
+    }
 }
 
 // Client setup
@@ -844,28 +851,18 @@ document.getElementById('join-input').addEventListener('keydown',function(e){if(
 document.getElementById('join-input').addEventListener('input',function(e){e.target.value=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'');});
 
 // ============================
-// HOST: AUTO-START ON FIRST JOIN + CONFIG READ
+// HOST: MANUAL START
 // ============================
-var hostStarted=false;
-// Override to add config + start logic
-(function(){
-    var _hnc=handleNewClient;
-    handleNewClient=function(c){
-        _hnc(c);
-        if(!hostStarted&&players.length>=2){
-            hostStarted=true;
-            maxPlayers=parseInt(document.getElementById('cfg-max-players').value);
-            livesPerPlayer=parseInt(document.getElementById('cfg-lives').value);
-            SPEED=parseInt(document.getElementById('cfg-speed').value);
-            // Update config for all already-connected players
-            Object.keys(clients).forEach(function(k){
-                clients[k].conn.send({type:'welcome',playerIdx:clients[k].playerIdx,color:players[clients[k].playerIdx].color,maxPlayers:maxPlayers,lives:livesPerPlayer,speed:SPEED});
-            });
-            // Send start
-            setTimeout(function(){hostStartRound();},2000);
-        }
-    };
-})();
+function hostManualStart(){
+    if(!isHost||players.length<2)return;
+    maxPlayers=parseInt(document.getElementById('cfg-max-players').value);
+    livesPerPlayer=parseInt(document.getElementById('cfg-lives').value);
+    SPEED=parseInt(document.getElementById('cfg-speed').value);
+    Object.keys(clients).forEach(function(k){
+        clients[k].conn.send({type:'welcome',playerIdx:clients[k].playerIdx,color:players[clients[k].playerIdx].color,maxPlayers:maxPlayers,lives:livesPerPlayer,speed:SPEED});
+    });
+    hostStartRound();
+}
 
 // Host initializes as first player
 function initHostPlayer(){
@@ -873,21 +870,16 @@ function initHostPlayer(){
     myPlayerIdx=0;
 }
 
-// Patch showCreateRoom to also init host player
 var _showCreateRoom=showCreateRoom;
 showCreateRoom=function(){
-    hostStarted=false;players=[];
+    players=[];
+    document.getElementById('start-game-btn').style.display='none';
     _showCreateRoom();
-    // Init host after peer is open
     peer.on('open',function(id){
         initHostPlayer();
         updateCreateStatus();
     });
 };
-
-// Patch joinRoom for welcome message handling
-var _joinRoom=joinRoom;
-// Already handled via handleServerData
 
 resizeCanvas();
 </script>
